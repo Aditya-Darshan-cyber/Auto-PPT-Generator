@@ -1,0 +1,15 @@
+fastapi>=0.110,<0.115
+uvicorn[standard]>=0.29,<0.32
+
+# PPTX building
+python-pptx>=0.6.23,<0.7
+Pillow>=10.0.0,<12.0.0
+
+# Markdown parsing
+markdown-it-py>=3.0.0,<4.0.0
+
+# HTTP & uploads
+requests>=2.31,<3
+python-multipart>=0.0.9,<0.0.10
+aiofiles>=23.0.0,<24.0.0
+

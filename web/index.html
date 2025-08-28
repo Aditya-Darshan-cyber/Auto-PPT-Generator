@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Auto PPT Generator — Text ➜ Themed PowerPoint</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Turn bulk text/markdown into a themed PowerPoint using your own .pptx/.potx template. Uses AI Pipe (OpenAI-compatible) or a heuristic fallback." />
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#121931; --muted:#8fa2d9; --text:#e8ecff; --accent:#6ea8ff; --ok:#46c37b; --warn:#ffcc66; --err:#ff6b6b;
+      --input:#0f1530; --border:#233056; --chip:#1a2346;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font:16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .wrap{max-width:1080px;margin:0 auto;padding:2rem 1rem 4rem}
+    header{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem}
+    .brand{display:flex;align-items:center;gap:.75rem}
+    .logo{width:40px;height:40px;border-radius:8px;background:linear-gradient(135deg,#4f68ff,#7f53ff)}
+    h1{font-size:1.2rem;margin:0}
+    .muted{color:var(--muted);font-size:.95rem}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:1rem 1.25rem;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    @media (max-width: 900px){ .grid{grid-template-columns:1fr} }
+    label{display:block;margin:.5rem 0 .35rem}
+    input[type="text"], input[type="password"], input[type="file"], textarea, select{
+      width:100%;background:var(--input);border:1px solid var(--border);color:var(--text);
+      border-radius:10px;padding:.7rem .8rem;outline:none
+    }
+    textarea{min-height:220px;resize:vertical}
+    .row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+    .chips{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem}
+    .chip{background:var(--chip);border:1px solid var(--border);color:var(--text);padding:.35rem .6rem;border-radius:999px;cursor:pointer;font-size:.85rem}
+    .chip:hover{border-color:var(--accent)}
+    .btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}
+    button{
+      background:var(--accent);color:#081028;border:0;border-radius:12px;padding:.65rem .9rem;font-weight:600;cursor:pointer
+    }
+    button.secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
+    button.warn{background:var(--warn);color:#151515}
+    .help{font-size:.85rem;color:var(--muted)}
+    .good{color:var(--ok)} .bad{color:var(--err)}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+    .outline{white-space:pre-wrap;background:#0c1430;border:1px dashed var(--border);padding:.75rem;border-radius:12px;max-height:420px;overflow:auto}
+    .small{font-size:.9rem}
+    .footer{margin-top:2rem;color:var(--muted);font-size:.9rem}
+    .pill{display:inline-block;border:1px solid var(--border);background:var(--chip);padding:.15rem .5rem;border-radius:999px;font-size:.8rem}
+    .row-right{margin-left:auto;display:flex;gap:.6rem;align-items:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div>
+          <h1>Auto PPT Generator — Text ➜ Themed PowerPoint</h1>
+          <div class="muted">Paste text/markdown + upload a .pptx/.potx template → download a themed deck.</div>
+        </div>
+      </div>
+      <div class="row">
+        <span id="aipipeStatus" class="pill">AI Pipe: <span id="aipipeBadge">not signed in</span></span>
+        <a class="pill" href="/docs" target="_blank" rel="noopener">API Docs</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LEFT: Input -->
+      <section class="card">
+        <label for="text">Input text / markdown</label>
+        <textarea id="text" placeholder="# Title&#10;- bullet 1&#10;- bullet 2"></textarea>
+        <div class="row small">
+          <span id="wordCount" class="muted">0 words</span>
+          <span class="row-right help">Secrets/URLs are not stored; LLM path is optional.</span>
+        </div>
+
+        <label for="guidance">One-line guidance (optional)</label>
+        <input id="guidance" type="text" placeholder="e.g., investor pitch deck, SOP, research talk" />
+        <div class="chips">
+          <button type="button" class="chip" data-guidance="investor pitch deck">Investor pitch</button>
+          <button type="button" class="chip" data-guidance="sales deck (visual-heavy)">Sales deck</button>
+          <button type="button" class="chip" data-guidance="research talk (12–15 slides)">Research talk</button>
+          <button type="button" class="chip" data-guidance="SOP / runbook">SOP</button>
+          <button type="button" class="chip" data-guidance="lesson with quiz">Lesson + quiz</button>
+          <button type="button" class="chip" data-guidance="data analysis summary">Data analysis</button>
+          <button type="button" class="chip" data-guidance="policy/compliance summary">Policy summary</button>
+        </div>
+
+        <div class="row" style="margin-top:.7rem">
+          <label style="display:flex;align-items:center;gap:.5rem">
+            <input id="includeNotes" type="checkbox" /> Include speaker notes
+          </label>
+        </div>
+
+        <label for="template" style="margin-top:.9rem">PowerPoint template (.pptx or .potx)</label>
+        <input id="template" type="file" accept=".pptx,.potx" />
+        <div class="help">Tip: a small template works best. The app reuses its theme fonts/colors and existing images.</div>
+      </section>
+
+      <!-- RIGHT: LLM + actions -->
+      <section class="card">
+        <div class="row">
+          <div style="flex:1">
+            <label for="apiKey">AI Pipe token (OpenAI-compatible)</label>
+            <input id="apiKey" type="password" placeholder="Paste token or use AI Pipe sign-in →" autocomplete="off" />
+            <div class="row small">
+              <span class="help">Token stays in your browser and is sent only to this API for this request.</span>
+              <button id="toggleKey" type="button" class="secondary small">show</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top:.6rem">
+          <div>
+            <label for="model">Model</label>
+            <select id="model">
+              <option value="gpt-4.1-mini" selected>gpt-4.1-mini</option>
+            </select>
+          </div>
+          <div>
+            <label for="baseUrl">Base URL</label>
+            <input id="baseUrl" type="text" value="https://aipipe.org/openai/v1" />
+          </div>
+        </div>
+        <input id="provider" type="hidden" value="openai" />
+
+        <div class="btns">
+          <button id="previewBtn" type="button" class="secondary">Preview outline</button>
+          <button id="generateBtn" type="button">Generate .pptx</button>
+          <button id="clearBtn" type="button" class="secondary">Clear</button>
+        </div>
+
+        <div id="status" class="small muted" style="margin-top:.6rem">Ready.</div>
+
+        <div id="previewPanel" style="display:none;margin-top:1rem">
+          <div class="row" style="align-items:baseline">
+            <strong>Outline preview</strong>
+            <span id="previewMeta" class="muted small"></span>
+          </div>
+          <pre id="outline" class="outline mono"></pre>
+        </div>
+      </section>
+    </div>
+
+    <div class="footer">
+      <p class="muted">This app never stores your token or text on the server. Images are <em>reused only</em> from your template; no AI image generation. Themed fonts/colors come from your template’s theme.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    // --- Optional AI Pipe auth helper ---
+    let aipipeProfile = { token: null, email: null };
+    try {
+      const mod = await import("https://aipipe.org/aipipe.js");
+      if (mod && typeof mod.getProfile === "function") {
+        const p = mod.getProfile();
+        aipipeProfile.token = p?.token || null;
+        aipipeProfile.email = p?.email || null;
+      }
+    } catch (e) {
+      // ignore network errors; manual token entry still works
+    }
+
+    const $ = (sel) => document.querySelector(sel);
+    const textEl = $("#text");
+    const guidanceEl = $("#guidance");
+    const includeNotesEl = $("#includeNotes");
+    const templateEl = $("#template");
+    const apiKeyEl = $("#apiKey");
+    const modelEl = $("#model");
+    const baseUrlEl = $("#baseUrl");
+    const providerEl = $("#provider");
+    const statusEl = $("#status");
+    const outlineEl = $("#outline");
+    const previewPanel = $("#previewPanel");
+    const previewMeta = $("#previewMeta");
+    const wordCount = $("#wordCount");
+    const aipipeBadge = $("#aipipeBadge");
+    const aipipeStatus = $("#aipipeStatus");
+    const toggleKeyBtn = $("#toggleKey");
+
+    // Prefill from AI Pipe if available
+    if (aipipeProfile.token) {
+      apiKeyEl.value = aipipeProfile.token;
+      aipipeBadge.textContent = (aipipeProfile.email || "signed in");
+      aipipeStatus.classList.add("good");
+    } else {
+      aipipeBadge.textContent = "not signed in";
+    }
+
+    // Chips → set guidance
+    document.querySelectorAll(".chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        guidanceEl.value = chip.dataset.guidance || "";
+      });
+    });
+
+    // Word counter
+    const countWords = (s) => (s.match(/\w+/g) || []).length;
+    const updateCount = () => wordCount.textContent = `${countWords(textEl.value)} words`;
+    textEl.addEventListener("input", updateCount); updateCount();
+
+    // Toggle show/hide token
+    toggleKeyBtn.addEventListener("click", () => {
+      apiKeyEl.type = apiKeyEl.type === "password" ? "text" : "password";
+      toggleKeyBtn.textContent = apiKeyEl.type === "password" ? "show" : "hide";
+    });
+
+    // Helpers
+    const setStatus = (msg, tone="muted") => {
+      statusEl.textContent = msg;
+      statusEl.className = `small ${tone}`;
+    };
+
+    const preview = async () => {
+      setStatus("Generating outline…");
+      previewPanel.style.display = "none";
+      outlineEl.textContent = "";
+      try {
+        const fd = new FormData();
+        fd.append("text", textEl.value || "");
+        fd.append("guidance", guidanceEl.value || "");
+        fd.append("provider", providerEl.value || "openai");
+        fd.append("model", modelEl.value || "gpt-4.1-mini");
+        fd.append("base_url", baseUrlEl.value || "https://aipipe.org/openai/v1");
+        fd.append("include_notes", includeNotesEl.checked ? "true" : "false");
+        const key = (apiKeyEl.value || "").trim();
+        if (key) fd.append("api_key", key);
+
+        const resp = await fetch("/api/preview_outline", { method: "POST", body: fd });
+        if (!resp.ok) {
+          const t = await resp.text();
+          throw new Error(`Preview failed: ${t || resp.status}`);
+        }
+        const data = await resp.json();
+        outlineEl.textContent = JSON.stringify(data, null, 2);
+        previewMeta.textContent = ` — ${data.estimated_slide_count ?? (data.slides?.length || "?")} slides`;
+        previewPanel.style.display = "block";
+        setStatus("Outline ready.", "good");
+      } catch (err) {
+        setStatus(err.message || "Preview failed.", "bad");
+      }
+    };
+
+    const generate = async () => {
+      setStatus("Building .pptx…");
+      previewPanel.style.display = "none";
+      outlineEl.textContent = "";
+
+      const file = templateEl.files?.[0];
+      if (!file) { setStatus("Please choose a .pptx/.potx template.", "bad"); return; }
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+      if (![".pptx", ".potx"].includes(ext)) {
+        setStatus("Unsupported file type. Please upload .pptx or .potx.", "bad"); return;
+      }
+      // Optional client-side size check (default hint: 20MB; server is source of truth)
+      const MAX_MB_HINT = 20;
+      if (file.size > MAX_MB_HINT * 1024 * 1024) {
+        setStatus(`Template is larger than ${MAX_MB_HINT} MB. It may be rejected by the server.`, "warn");
+      }
+
+      try {
+        const fd = new FormData();
+        fd.append("text", textEl.value || "");
+        fd.append("guidance", guidanceEl.value || "");
+        fd.append("provider", providerEl.value || "openai");
+        fd.append("model", modelEl.value || "gpt-4.1-mini");
+        fd.append("base_url", baseUrlEl.value || "https://aipipe.org/openai/v1");
+        fd.append("include_notes", includeNotesEl.checked ? "true" : "false");
+        fd.append("template", file, file.name);
+
+        const key = (apiKeyEl.value || "").trim();
+        if (key) fd.append("api_key", key);
+
+        const resp = await fetch("/api/generate", { method: "POST", body: fd });
+        if (!resp.ok) {
+          const t = await resp.text();
+          throw new Error(`Generate failed: ${t || resp.status}`);
+        }
+
+        // Download .pptx
+        const blob = await resp.blob();
+        let filename = "deck.pptx";
+        const disp = resp.headers.get("Content-Disposition");
+        if (disp) {
+          const m = /filename="?([^"]+)"?/i.exec(disp);
+          if (m) filename = m[1];
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0);
+        setStatus("Downloaded.", "good");
+      } catch (err) {
+        setStatus(err.message || "Generation failed.", "bad");
+      }
+    };
+
+    // Buttons
+    $("#previewBtn").addEventListener("click", preview);
+    $("#generateBtn").addEventListener("click", generate);
+    $("#clearBtn").addEventListener("click", () => {
+      textEl.value = ""; guidanceEl.value = ""; includeNotesEl.checked = false; templateEl.value = "";
+      outlineEl.textContent = ""; previewPanel.style.display = "none"; updateCount(); setStatus("Cleared.");
+    });
+
+    // Small UX niceties
+    window.addEventListener("dragover", (e) => { e.preventDefault(); });
+    window.addEventListener("drop", (e) => { e.preventDefault(); });
+  </script>
+</body>
+</html>
